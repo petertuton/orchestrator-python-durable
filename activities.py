@@ -6,7 +6,7 @@ import sys
 from typing import Dict, Any
 
 # Import app from function_app instead of creating a new instance
-from config import API_BASE_URL
+from config import API_BASE_URL, get_eventhub_client, EVENT_HUB_CONN_STR, EVENT_HUB_NAME
 
 # Import app and logger from function_app after they are defined there
 # This circular import is intentional and will be resolved at runtime
@@ -177,36 +177,35 @@ async def stop_simulation(simulationId: str):
 async def send_to_event_hub(results: Dict[str, Any]):
     """
     Activity to send simulation results to Azure Event Hub using the Azure SDK
+    Uses a singleton Event Hub client for better performance
     """
     logger.info("Sending simulation results to Azure Event Hub")
     try:
-        # Get connection string from environment variables or config
-        connection_string = os.environ.get("EventHubConnectionString")
-        event_hub_name = os.environ.get("EventHubName")
+        # Get the singleton Event Hub client
+        producer = await get_eventhub_client()
         
-        if not connection_string:
-            logger.error("EventHubConnectionString not found in environment variables")
-            raise ValueError("EventHubConnectionString not found")
+        if not producer:
+            logger.error("EventHub client could not be initialized. Check connection string and event hub name.")
+            # Don't raise error for missing connection in development environment
+            if "local" in sys.executable.lower() or "development" in os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT", "").lower():
+                logger.warning("Running in local/development environment - continuing without Event Hub")
+                return True
+            raise ValueError("EventHub client could not be initialized")
 
         # Format the results as JSON string for sending
         result_json = json.dumps(results)
         
-        # Create an async Event Hub producer client
-        async with AsyncEventHubProducerClient.from_connection_string(
-            conn_str=connection_string,
-            eventhub_name=event_hub_name
-        ) as producer:
-            # Create a batch
-            event_data_batch = await producer.create_batch()
-            
-            # Add event to the batch
-            event_data_batch.add(EventData(result_json))
-            
-            # Send the batch of events to the event hub
-            await producer.send_batch(event_data_batch)
-            
-            logger.info("Successfully sent simulation results to Event Hub")
-            return True
+        # Create a batch
+        event_data_batch = await producer.create_batch()
+        
+        # Add event to the batch
+        event_data_batch.add(EventData(result_json))
+        
+        # Send the batch of events to the event hub
+        await producer.send_batch(event_data_batch)
+        
+        logger.info("Successfully sent simulation results to Event Hub")
+        return True
             
     except ValueError as ve:
         logger.error(f"ValueError in send_to_event_hub: {str(ve)}")
