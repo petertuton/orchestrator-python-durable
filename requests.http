@@ -1,9 +1,6 @@
 POST http://localhost:7071/api/simulations/1234-5678/start HTTP/1.1
 
 ####
-POST http://localhost:7071/api/simulations/1234-5678/stop HTTP/1.1
-
-####
 POST http://localhost:7071/api/simulation_loop_webhook HTTP/1.1
 Content-Type: application/cloudevents+json
 
@@ -20,6 +17,10 @@ Content-Type: application/cloudevents+json
         "status": "completed"
     }
 }
+
+####
+POST http://localhost:7071/api/simulations/1234-5678/stop HTTP/1.1
+
 
 ####
 POST http://localhost:7071/runtime/webhooks/durabletask/instances/1234-5678/terminate
