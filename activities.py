@@ -84,7 +84,10 @@ async def input_data(context: Dict[str, Any]):
             raise ValueError("Missing required data: simulationId or inputData")
             
         async with aiohttp.ClientSession() as session:
-            async with session.put(f"{API_BASE_URL}/simulations/{simulation_id}/input/data", json=input_data) as response:
+            headers = {'Content-Type': 'application/json'}
+            async with session.put(f"{API_BASE_URL}/simulations/{simulation_id}/input/data", 
+                                  json=input_data, 
+                                  headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
                     result = data.get('result')
@@ -217,3 +220,4 @@ async def send_to_event_hub(results: Dict[str, Any]):
     except Exception as ex:
         logger.error(f"Error sending results to Event Hub: {str(ex)}")
         raise
+

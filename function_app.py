@@ -4,6 +4,7 @@ import datetime
 import logging
 import json
 import asyncio
+import uuid
 from azure.core.messaging import CloudEvent
 from config import SIMULATION_ID, STATUS_FRESH, STATUS_IDLE, STATUS_STOPPED
 
@@ -19,6 +20,9 @@ import entities
 
 # Import activities (must be done after app and logger are defined)
 import activities
+
+##################################
+
 
 ################################
 # HTTP triggers
@@ -126,11 +130,22 @@ async def simulation_loop_webhook(req: func.HttpRequest, client) -> func.HttpRes
     # Simulation is running
     # Process the event
     try:
+        # Write the event to the topic_values entity
+        event_data = req.get_json()
+        logger.info(f"Received event data: {event_data}")
+        await client.signal_entity(df.EntityId("topic_values", "thisTopicValues"), "set", event_data)
+
         # Start the simulation loop orchestrator
-        simulation_loop_id = await client.start_new("simulation_loop_orchestrator", client_input=json.dumps(req.get_json()))
+        # simulation_loop_id = await client.start_new("simulation_loop_orchestrator", client_input=json.dumps(req.get_json()))
 
         # Return a response, using default timeout of 10 seconds
-        return await client.wait_for_completion_or_create_check_status_response(req, simulation_loop_id)
+        # return await client.wait_for_completion_or_create_check_status_response(req, simulation_loop_id)
+        # return 200 ok
+        return func.HttpResponse(
+            json.dumps({"message": "Event received and processed successfully."}), 
+            status_code=200,
+            mimetype="application/json"
+        )
     
     except Exception as ex:
         logger.error(f"Error in simulation_loop_webhook: {str(ex)}")
@@ -139,6 +154,22 @@ async def simulation_loop_webhook(req: func.HttpRequest, client) -> func.HttpRes
             status_code=500,
             mimetype="application/json"
         )
+
+# Timer trigger that runs every second
+@app.timer_trigger(schedule="*/1 * * * * *", arg_name="timer")
+@app.durable_client_input(client_name="client")
+async def timer_function(timer: func.TimerRequest, client) -> None:
+    try:
+        # Log invocation
+        utc_timestamp = datetime.datetime.utcnow()
+        logger.info(f'Timer trigger function executed at: {utc_timestamp}')
+        
+        # Start the simulation loop orchestrator with a random simulation id 
+        simulation_loop_id = await client.start_new("simulation_loop_orchestrator", str(uuid.uuid4()), {utc_timestamp})
+        logger.info(f"Started simulation loop orchestrator with id: {simulation_loop_id}")
+        
+    except Exception as ex:
+        logger.error(f"Error in timer_function: {str(ex)}")
 
 ################################
 # Orchestrators
@@ -207,63 +238,66 @@ def simulation_loop_orchestrator(context):
     logger.info(f"Starting simulation loop orchestrator for simulation id: {context.instance_id}")
     simulation_id = SIMULATION_ID
 
-    # Get the input, which is a JSON string of the CloudEvent
-    event_dict = json.loads(context.get_input())
+    # Get the input, which is a datetime string in ISO format from when the trigger fired
+    triggerdatetime = json.loads(context.get_input())
     
     # Handle the time field separately before creating CloudEvent
-    event_time = None
-    if "time" in event_dict and event_dict["time"]:
-        # Extract time as string only, we'll convert after creating CloudEvent
-        time_str = event_dict["time"]
-        # Store original time string to convert later
-        event_time = time_str
+    # event_time = None
+    # if "time" in event_dict and event_dict["time"]:
+    #     # Extract time as string only, we'll convert after creating CloudEvent
+    #     time_str = event_dict["time"]
+    #     # Store original time string to convert later
+    #     event_time = time_str
     
-    # Create CloudEvent without converting time to datetime yet
-    cloud_event = CloudEvent.from_dict(event_dict)
+    # # Create CloudEvent without converting time to datetime yet
+    # cloud_event = CloudEvent.from_dict(event_dict)
     
-    # Now handle time conversion properly, outside the CloudEvent object
-    if event_time:
-        # Strip 'Z' if present and convert to datetime
-        time_str = event_time.rstrip('Z')
-        event_datetime = datetime.datetime.fromisoformat(time_str)
-    else:
-        event_datetime = datetime.datetime.now()
+    # # Now handle time conversion properly, outside the CloudEvent object
+    # if event_time:
+    #     # Strip 'Z' if present and convert to datetime
+    #     time_str = event_time.rstrip('Z')
+    #     event_datetime = datetime.datetime.fromisoformat(time_str)
+    # else:
+    #     event_datetime = datetime.datetime.now()
 
-    # Get the schematic graph, required to transform the event data
+    # # Get the schematic graph, required to transform the event data
     schematic_graph = yield context.call_entity(df.EntityId("schematic_graph", "thisSchematicGraph"), "get")
     if not schematic_graph:
         raise Exception("The schematic graph is not set. Check the simulation information was successfully retrieved.")
     
-    # Create event data dictionary, ensuring time is handled as string
-    event_data = {
-        "id": cloud_event.id,
-        "source": cloud_event.source,
-        "type": cloud_event.type,
-        "time": event_time,  # Use original time string
-        "data": cloud_event.data
-    }
+    # # Create event data dictionary, ensuring time is handled as string
+    # event_data = {
+    #     "id": cloud_event.id,
+    #     "source": cloud_event.source,
+    #     "type": cloud_event.type,
+    #     "time": event_time,  # Use original time string
+    #     "data": cloud_event.data
+    # }
+
+    # Get the topic values from the entity
+    topic_values = yield context.call_entity(df.EntityId("topic_values", "thisTopicValues"), "get")
     
     # Transform the event data using the schematic graph
     transformed_data = yield context.call_activity("transform_event_data", {
-        "cloud_event": event_data,
+        "cloud_event": topic_values,
         "schematic_graph": schematic_graph
     })
     logger.info(f"Transformed event data: {transformed_data}")
 
     # Get the last event time and calculate time difference
-    last_event_time_raw = yield context.call_entity(df.EntityId("last_event_time", "thisLastEventTime"), "get")
-    if last_event_time_raw:
-        last_event_time = datetime.datetime.fromisoformat(last_event_time_raw)
-        # Use our separately converted datetime object
-        time_diff = event_datetime - last_event_time
-        transformed_data["time"] = time_diff.total_seconds() / 60
-        logger.info(f"Time difference between events: {transformed_data['time']} minutes")
-    else:
-        transformed_data["time"] = 0
-        logger.info("No previous event time found, setting time difference to 0")
+    # last_event_time_raw = yield context.call_entity(df.EntityId("last_event_time", "thisLastEventTime"), "get")
+    # if last_event_time_raw:
+    #     last_event_time = datetime.datetime.fromisoformat(last_event_time_raw)
+    #     # Use our separately converted datetime object
+    #     time_diff = event_datetime - last_event_time
+    #     transformed_data["time"] = time_diff.total_seconds() / 60
+    #     logger.info(f"Time difference between events: {transformed_data['time']} minutes")
+    # else:
+    #     transformed_data["time"] = 0
+    #     logger.info("No previous event time found, setting time difference to 0")
 
-    # Update last_event_time with current event time as ISO string
-    yield context.call_entity(df.EntityId("last_event_time", "thisLastEventTime"), "set", event_datetime.isoformat())
+    # # Update last_event_time with current event time as ISO string
+    # yield context.call_entity(df.EntityId("last_event_time", "thisLastEventTime"), "set", event_datetime.isoformat())
 
     # Input the transformed data to the simulation
     input_data = {

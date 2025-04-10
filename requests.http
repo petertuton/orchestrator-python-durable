@@ -9,7 +9,7 @@ Content-Type: application/cloudevents+json
     "type": "Example.Event",
     "source": "/subscriptions/example-subscription/resourceGroups/example-resource-group",
     "id": "12345",
-    "time": "2023-10-15T18:36:30Z",
+    "time": "2023-10-15T18:37:00Z",
     "datacontenttype": "application/json",
     "data": {
         "message": "This is sample event data 3",
