@@ -238,8 +238,8 @@ def simulation_loop_orchestrator(context):
     logger.info(f"Starting simulation loop orchestrator for simulation id: {context.instance_id}")
     simulation_id = SIMULATION_ID
 
-    # Get the input, which is a datetime string in ISO format from when the trigger fired
-    triggerdatetime = json.loads(context.get_input())
+    # Get the input, which is a datetime object in ISO format from when the trigger fired
+    triggerdatetime = context.get_input()
     
     # Handle the time field separately before creating CloudEvent
     # event_time = None
