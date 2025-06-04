@@ -133,8 +133,13 @@ async def simulation_loop_webhook(req: func.HttpRequest, client) -> func.HttpRes
         # Write the event to the topic_values entity
         event_data = req.get_json()
         logger.info(f"Received event data: {event_data}")
-        await client.signal_entity(df.EntityId("topic_values", "thisTopicValues"), "set", event_data)
 
+        # Store the event data's data value for the event data's subject in the topic_values entity
+        topic = event_data.get("subject")
+        mqtt_data = event_data.get("data")
+        await client.signal_entity(df.EntityId("topics", "topics"), "add", topic)
+        await client.signal_entity(df.EntityId("topic_values", topic), "set", mqtt_data)
+        
         # Start the simulation loop orchestrator
         # simulation_loop_id = await client.start_new("simulation_loop_orchestrator", client_input=json.dumps(req.get_json()))
 
@@ -275,14 +280,21 @@ def simulation_loop_orchestrator(context):
     # }
 
     # Get the topic values from the entity
-    topic_values = yield context.call_entity(df.EntityId("topic_values", "thisTopicValues"), "get")
+    topics = yield context.call_entity(df.EntityId("topics", "topics"), "get")
+    if not topics:
+        raise Exception("No topics found. Ensure the simulation loop webhook has received events.")
+    logger.info(f"Processing topics: {topics}")
     
-    # Transform the event data using the schematic graph
-    transformed_data = yield context.call_activity("transform_event_data", {
-        "cloud_event": topic_values,
-        "schematic_graph": schematic_graph
-    })
-    logger.info(f"Transformed event data: {transformed_data}")
+    # Process each topic's values
+    for topic in topics:
+        topic_values = yield context.call_entity(df.EntityId("topic_values", topic), "get")
+
+        # Transform the event data using the schematic graph
+        transformed_data = yield context.call_activity("transform_event_data", {
+            "cloud_event": topic_values,
+            "schematic_graph": schematic_graph
+        })
+        logger.info(f"Transformed event data: {transformed_data}")
 
     # Get the last event time and calculate time difference
     # last_event_time_raw = yield context.call_entity(df.EntityId("last_event_time", "thisLastEventTime"), "get")

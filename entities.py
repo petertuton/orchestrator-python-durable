@@ -36,6 +36,21 @@ def last_event_time(context):
         context.set_state(None)
 
 @app.entity_trigger(context_name="context")
+def topics(context):
+    """Entity for storing topics"""
+    logger.debug(f"Called topics entity: {context.operation_name}")
+    operation = context.operation_name
+    if operation == "get":
+        logger.debug("Getting topics")
+        context.set_result(context.get_state(lambda: None))
+    elif operation == "add":
+        logger.debug("Adding topic")
+        context.set_state(context.get_state().add(context.get_input()))
+    elif operation == "delete":
+        logger.debug("Deleting topic")
+        context.set_state(context.get_state().remove(context.get_input()))
+
+@app.entity_trigger(context_name="context")
 def topic_values(context):
     """Entity for storing topic values"""
     logger.debug(f"Called topic_values entity: {context.operation_name}")
