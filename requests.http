@@ -11,10 +11,9 @@ Content-Type: application/cloudevents+json
     "id": "12345",
     "time": "2023-10-15T18:37:00Z",
     "datacontenttype": "application/json",
+    "subject": "sensor1",
     "data": {
-        "message": "This is sample event data 3",
-        "priority": "high",
-        "status": "completed"
+        "message": "This is sample event data 4"
     }
 }
 
